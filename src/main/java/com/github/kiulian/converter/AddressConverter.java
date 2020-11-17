@@ -1,4 +1,4 @@
-package com.github.kiulian.converter;
+package ltd.pdx.wallet.order.bch.util;
 
 /*-
  * -----------------------LICENSE_START-----------------------
@@ -9,9 +9,9 @@ package com.github.kiulian.converter;
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,9 +21,9 @@ package com.github.kiulian.converter;
  */
 
 
-
-
-import com.github.kiulian.converter.b58.B58;
+import ltd.pdx.wallet.order.bch.util.b58.B58;
+import org.bitcoinj.core.NetworkParameters;
+import org.bitcoinj.params.RegTestParams;
 
 import java.math.BigInteger;
 import java.util.ArrayList;
@@ -33,8 +33,10 @@ public class AddressConverter {
 
     private static final String SEPARATOR = ":";
 
-    private static final String PREFIX = "bitcoincash";
-    private static final int[] PREFIX_BYTES = new int[]{2, 9, 20, 3, 15, 9, 14, 3, 1, 19, 8, 0};
+    //private static final String PREFIX = "bitcoincash";
+    //private static final String PREFIX = "bchreg";
+    //private static final int[] PREFIX_BYTES = new int[]{2, 9, 20, 3, 15, 9, 14, 3, 1, 19, 8, 0};
+    //private static final int[] PREFIX_BYTES = new int[]{2, 3, 8, 18, 5, 7, 0};
 
     private static final BigInteger[] GENERATORS = new BigInteger[]{
             new BigInteger("98f2bc8e61", 16),
@@ -45,9 +47,9 @@ public class AddressConverter {
 
     private static final BigInteger POLYMOD_CONSTANT = new BigInteger("07ffffffff", 16);
 
-    public static String toCashAddress(String legacyAddress) {
+    public static String toCashAddress(String legacyAddress, NetworkParameters networkParameters) {
         int oldVersion = B58.decode(legacyAddress)[0];
-        int newVersion = getVersion(true, oldVersion);
+        int newVersion = getVersion(true, oldVersion, null);
         byte[] payloadBytes = B58.decodeChecked(legacyAddress, oldVersion);
 
         int[] payload = new int[payloadBytes.length];
@@ -59,12 +61,16 @@ public class AddressConverter {
         payload = concatArrays(new int[]{newVersion}, payload);
 
         payload = convertBits(payload, 8, 5);
-        int[] checksum = checksum(payload);
+        int[] checksum = checksum(payload, networkParameters);
         String cashAddress = Base32.encode(concatArrays(payload, checksum));
-        return PREFIX + SEPARATOR + cashAddress;
+        String perfix = "bitcoincash";
+        if (networkParameters instanceof RegTestParams) {
+            perfix = "bchreg";
+        }
+        return perfix + SEPARATOR + cashAddress;
     }
 
-    public static String toLegacyAddress(String cashAddress) {
+    public static String toLegacyAddress(String cashAddress, NetworkParameters networkParameters) {
         if (cashAddress.contains(SEPARATOR))
             cashAddress = cashAddress.split(SEPARATOR)[1];
 
@@ -72,23 +78,26 @@ public class AddressConverter {
         int[] converted = convertBits(decoded, 5, 8);
         int[] payload = Arrays.copyOfRange(converted, 1, converted.length - 6);
         byte[] payloadBytes = new byte[payload.length];
-        for (int i = 0; i < payloadBytes.length; payloadBytes[i] = (byte) payload[i++]);
+        for (int i = 0; i < payloadBytes.length; payloadBytes[i] = (byte) payload[i++]) ;
 
-        return B58.encodeToStringChecked(payloadBytes, getVersion(false, converted[0]));
+        return B58.encodeToStringChecked(payloadBytes, getVersion(false, converted[0], networkParameters));
     }
 
-    private static int getVersion(boolean legacy, int version) {
+    private static int getVersion(boolean legacy, int version, NetworkParameters networkParameters) {
         if (legacy) {
             if (version == 5) // P2SH
                 return 8;
-        } else
-        if (version == 8)
+        } else if (version == 8)
             return 5; // P2SH
-        return 0; //P2PKH
+        return networkParameters != null ? networkParameters.getAddressHeader() : 0; //P2PKH
     }
 
-    private static int[] checksum(int[] payload) {
-        BigInteger poly = polymod(concatArrays(concatArrays(PREFIX_BYTES, payload), new int[]{0, 0, 0, 0, 0, 0, 0, 0}));
+    private static int[] checksum(int[] payload, NetworkParameters networkParameters) {
+        int[] perfixBytes = new int[]{2, 9, 20, 3, 15, 9, 14, 3, 1, 19, 8, 0};
+        if (networkParameters instanceof RegTestParams) {
+            perfixBytes = new int[]{2, 3, 8, 18, 5, 7, 0};
+        }
+        BigInteger poly = polymod(concatArrays(concatArrays(perfixBytes, payload), new int[]{0, 0, 0, 0, 0, 0, 0, 0}));
         int[] checksum = new int[8];
 
         for (int i = 0; i < 8; i++) {
